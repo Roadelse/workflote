@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+
+# This python3 script aims to implement the <filter> functionality, i.e., filtering the commands in workflow.md based on rules from .wfignore
+
+import os, sys
+import re
+
+def ignore(L, ig_lines):
+    for ig in ig_lines:
+        if L.startswith(ig):
+            return True
+    return False
+
+def main(wf_file, ig_file):
+    wf_lines = open(wf_file).read().splitlines()
+    ig_lines = open(ig_file).read().splitlines()
+
+    ig_index = [0 for _ in range(len(wf_lines))]
+
+    for i, L in enumerate(wf_lines):
+        if L[0:2] == '+ ':  #>- command line
+            if ignore(L[2:], ig_lines):
+                ig_index[i] = 1
+                if i == len(wf_lines)-1 or wf_lines[i+1][0] != '+':
+                    j = i
+                    while ig_index[j]:
+                        j -= 1
+                    if wf_lines[j][0:2] == 'At':
+                        ig_index[j] = 1
+                        ig_index[j-1] = 1
+
+    print(ig_index)
+
+    prev_at = (None, None)
+    for i, L in enumerate(wf_lines):
+        if ig_index[i]: continue
+
+        # pprev_loc_lineNo = prev_loc_lineNo
+        # prev_loc_lineNo = (i, re.search('\*\*(.*?)\*\*', L).group(1))
+        if L[0:2] == 'At': #>- location line
+            loc = re.search('\*\*(.*?)\*\*', L).group(1)
+            # print(f'cp1, loc={loc}, prev_at[1]={prev_at[1]}')
+
+            if loc == prev_at[1]:
+                ig_index[i] = 1
+                ig_index[i-1] = 1
+            else:
+                # print("cp2")
+                prev_at = (i, loc)
+    print(ig_index)
+    
+
+    wf_lines_new = [line for i, line in enumerate(wf_lines) if ig_index[i] == 0]
+    with open(wf_file, 'w') as f:
+        for L in wf_lines_new:
+            f.write(f'{L}\n')
+    
+    return
+
+
+if __name__ == '__main__':
+    assert len(sys.argv) <= 3
+    if len(sys.argv) == 2:
+        if sys.argv[1] in ('-h', '--help'):
+            print("This python3 script aims to implement the <filter> functionality for workFlowRec, i.e., filtering the commands in workflow.md based on ignore-rules from .wfignore")
+        else:
+            raise ValueError("Unexpected Option")
+    elif len(sys.argv) == 3:
+        main(sys.argv[1], sys.argv[2])
+    else:
+        raise ValueError("Unexpected CLI arguments!")

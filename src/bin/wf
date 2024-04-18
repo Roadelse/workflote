@@ -1,0 +1,348 @@
+#!/bin/bash
+
+# Thie script is used to record target Bash-Shell commands with relative position.
+# The main difference between asciinema/termRecord/script is that this script keeps focus on
+# COMMAND RECORD rather than record the terminal, which may contain both input & output, as well as the timestamp for each action
+# Thus, this tool is just used to record the key human actions
+# *********************************************************
+# 2024-03-26    REBUILD | encapsulate all modes into functions
+# 2024-03-25    UPDATE  | Optimize auto-mode, re-arrange the skeleton comments
+
+#@ Prepare
+
+#@ .global-variables
+tarDir=$PWD
+#@ ..way
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    way=exec
+else
+    way=source
+fi
+
+#@ .arguments
+#@ ..default-arg-values
+init=0
+show_help=0
+rexit=0
+#@ ..resolve-args
+while getopts "hi:" arg; do
+    case $arg in
+    h)
+        show_help=1
+        shift 1
+        ;;
+    i)
+        init=1
+        new_opt=$OPTARG
+        shift 2
+        ;;
+    ?)
+        echo "Unknown options!"
+        rexit=1
+        ;;
+    esac
+done
+OPTIND=1
+
+#@ ..exit4unknown cannot do it within while or "return" will not work for this script
+if [[ $rexit == 1 ]]; then
+    if [[ "$way" == source ]]; then
+        unset rexit init show_help tarDir way
+        return
+    else
+        exit 1
+    fi
+fi
+
+#@ Auxiliary
+#@ .show-help
+if [[ $show_help == 1 ]]; then
+    echo '
+The wf tool is used to record selected command into a markdown file. Different from script/asciinema/termRecord which aims to record the general terminal input/output, This tool only focuses on command.
+
+Usage: 
+    Execution: wf [option]
+    Source: . wf [action]
+
+By default, if no any argument, it will report the workflow.md file path and probable status.
+
+Execution options:
+    ● -h
+        **show_help**, show help information
+    ● -i 1/2
+        **init**, create workflow.md (1) or .workflow.md in current directory
+
+Source action:
+    ● load
+        load all necessary functions
+    ● unload
+        unset all variables and functions
+
+Loaded functions:
+    ● wf_show [arg]
+        Show the content of target workflow.md via [arg], which is glow by default
+    ● wf_cancel
+        Remove the nearest record
+    ● wf_exec <command>
+        Execute the [command] and record it
+    ● wf_rec [co] [count]
+        Find the target command based on [co] from previous [count] command history. 
+        [count] is 20 by default. use the nearest command history if [co] not specified
+    ● wf_filter
+        Filter the workflow.md based on .wfignore
+    ● wf_auto [on/off] [mode]
+        Turn [on/off] auto-record functionality. if [mode] is specified to "exclude", 
+        it will record all commands except for some. Or, it will record commands ending with ";"
+'
+    if [[ "$way" == source ]]; then
+        unset rexit init show_help tarDir way
+        return
+    else
+        exit 0
+    fi
+fi
+
+#@ .init-wf
+if [[ $init == 1 ]]; then
+    if [[ $new_opt == 1 ]]; then
+        touch workflow.md
+    else
+        touch .workflow.md
+    fi
+    if [[ $way == exec ]]; then
+        exit 0
+    fi
+fi
+
+#@ .get-wf-file
+wf_file=
+while [[ $tarDir != "/" ]]; do
+    if [[ -e $tarDir/workflow.md && $(test -w $tarDir/workflow.md && echo ok || echo fail) == ok ]]; then
+        wf_file=$tarDir/workflow.md
+        break
+    elif [[ -e $tarDir/.workflow.md && $(test -w $tarDir/.workflow.md && echo ok || echo fail) == ok ]]; then
+        wf_file=$tarDir/.workflow.md
+        break
+    else
+        tarDir=$(dirname $tarDir)
+        continue
+    fi
+done
+
+#@ .check-wf-file
+if [[ -z $wf_file ]]; then
+    echo -e "\033[31mCannot\033[0m find workflow.md or .workflow.md with w authority in all parent directories"
+    if [[ "$way" == source ]]; then
+        unset -f wf_show wf_cancel wf_exec wf_rec wf_filter _wf_autorec wf_auto
+        unset wf_srcdir wf_automode tarDir way tarDir init new_opt show_help wf_file rexit WF_LOADED
+        return
+    else
+        exit 0
+    fi
+fi
+
+#@ .exit-for-execution
+if [[ $way == exec ]]; then
+    echo $wf_file
+    if [[ -n $WF_LOADED ]]; then
+        echo -e "\033[33m wf-env already loaded\033[0m"
+    fi
+    if [[ "$PROMPT_COMMAND" == "_wf_autorec" ]]; then
+        echo -e "\033[33m under wf auto-mode: ${wf_auto_mode} \033[0m"
+    fi
+    exit 0
+fi
+
+#@ .source-unload
+if [[ "$1" == "unload" ]]; then
+    echo -e "\033[33m Leaving workflow environment \033[0m"
+    unset -f wf_show wf_cancel wf_exec wf_rec wf_filter _wf_autorec wf_auto
+    unset wf_srcdir wf_automode tarDir way tarDir init new_opt show_help wf_file rexit WF_LOADED
+    unset PROMPT_COMMAND
+    return
+fi
+
+#@ .source-load
+export WF_LOADED=1
+
+echo -e "\033[33m Entering workflow environment \033[0m"
+
+#@ Core
+#@ .wf_show
+function wf_show() {
+    if [[ -z "$1" ]]; then
+        show_command=glow
+    else
+        show_command=$1
+    fi
+    if [[ $(which glow) == "" ]]; then
+        echo -e "\033[33m Cannot find glow, use tail either \033[0m"
+        show_command=cat
+    fi
+
+    eval $show_command $wf_file
+}
+
+#@ .wf_cancel
+function wf_cancel() {
+    sed -i '$d' $wf_file                             #@ exp remove the last line
+    if [[ ! $(sed -n '$p' $wf_file) =~ \+.* ]]; then #@ branch if the last line becomes location info, remove the last 2 lines
+        head -n -2 $wf_file >.ade
+        mv -f .ade $wf_file
+    fi
+}
+
+#@ .wf_exec
+function wf_exec() {
+    wf_pexec "$*"
+    ${*:1}
+}
+
+#@ .wf_pexec
+function wf_pexec() {
+    relpath=$(realpath --relative-to=$tarDir $PWD)
+    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
+
+    if [[ $last_relpath == $relpath ]]; then
+        echo -e "+ $*" >>$wf_file
+    else
+        nowDT=$(date '+%Y-%m-%d %H:%M:%S')
+        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ $*" >>$wf_file
+    fi
+}
+
+#@ .wf_say
+function wf_say() {
+    relpath=$(realpath --relative-to=$tarDir $PWD)
+    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
+
+    if [[ $last_relpath == $relpath ]]; then
+        echo -e "+ do: $*" >>$wf_file
+    else
+        nowDT=$(date '+%Y-%m-%d %H:%M:%S')
+        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ do: $*" >>$wf_file
+    fi
+}
+
+#@ .wf_rec
+function wf_rec() {
+    relpath=$(realpath --relative-to=$tarDir $PWD)
+    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
+
+    nlines=20
+    if [[ -n "$2" ]]; then
+        nlines=$2
+        if [[ ! "$nlines" -eq "$nlines" ]]; then
+            echo -e "\033[31m Error! wf_rec's 2nd argument must be integer \033[0m"
+            return
+        fi
+    fi
+    ((nlines_plus = nlines + 1))
+
+    if [[ -z "$1" ]]; then
+        targetCommand=$(history 2 | head -n 1 | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+    else
+        targetCommand=
+        if [[ -n $1 ]]; then
+            while read line; do
+                echo "$line vs $1"
+                if [[ "$line" =~ ^"$1" ]]; then
+                    targetCommand=$line
+                    break
+                fi
+            done <<<$(history $nlines_plus | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+        fi
+        if [[ -z "$targetCommand" ]]; then
+            echo -e "\033[31m Cannot find target command in last $nlines commands"
+            return
+        fi
+    fi
+
+    echo "targetCommand=$targetCommand"
+
+    if [[ $last_relpath == $relpath ]]; then
+        echo -e "+ $targetCommand" >>$wf_file
+    else
+        nowDT=$(date '+%Y-%m-%d %H:%M:%S')
+        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ ${targetCommand}" >>$wf_file
+    fi
+}
+
+#@ .wf_filter
+wf_srcdir=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
+function wf_filter() {
+    ig_file=$tarDir/.wfignore
+    if [[ $filter_mode == 1 && -e $ig_file ]]; then
+        $wf_srcdir/filter $wf_file $ig_file
+    fi
+}
+
+#@ ._wf_autorec Internal function used to implement record autuomatically
+function _wf_autorec() {
+    #@ Prepare
+    #@ .resolve-last-command
+    if [[ $? -ne 0 ]]; then
+        return
+    fi
+    local last_command=$(history 1 | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+
+    #@ Main
+    #@ .exclude-condition outside target tarDir
+    if [[ ! $PWD =~ ${tarDir}.* ]]; then
+        return
+    fi
+
+    #@ .exclude-condition handle include/exclude separately
+    if [[ $wf_auto_mode == "include" ]]; then      #@ branch include auto-mode
+        if [[ ! "$last_command" =~ .*";"$ ]]; then #@ branch return if command doesn't endwith ";"
+            return
+        fi
+        last_command=${last_command:0:-1}
+    else #@ branch exclude auto-mode
+        #@ ..exclude-default-command
+        for ig in "echo " "ls " "cd " "wf" "wf " "wf_" "source wf" ". wf"; do
+            if [[ "$last_command" =~ "$ig".* ]]; then
+                return
+            fi
+        done
+        #@ ..exclude-custom-command
+        if [[ -e .wfignore ]]; then
+            while read -r ig; do
+                if [[ "$last_command" =~ "$ig".* ]]; then
+                    return
+                fi
+            done <.wfignore
+        fi
+    fi
+
+    #@ .resolve-path
+    local relpath=$(realpath --relative-to=$tarDir .)
+    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
+
+    #@ .action
+    if [[ $last_relpath == $relpath ]]; then
+        echo -e "+ ${last_command}" >>$wf_file
+    else
+        local nowDT=$(date '+%Y-%m-%d %H:%M:%S')
+        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ ${last_command}" >>$wf_file
+    fi
+
+    # Post
+    echo -e "\033[33m command recorded in $wf_file \033[0m"
+}
+
+#@ .wf_auto
+function wf_auto() {
+    if [[ "$1" != "off" ]]; then
+        export PROMPT_COMMAND=_wf_autorec
+        export wf_auto_mode=include
+        if [[ "$2" == "exclude" ]]; then
+            export wf_auto_mode=exclude
+        fi
+        echo -e "\033[33m turn on workflow auto-mode:$wf_auto_mode \033[0m"
+
+    else
+        echo -e '\033[32m turn off workflow auto-mode \033[0m'
+        export PROMPT_COMMAND=
+    fi
+}

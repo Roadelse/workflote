@@ -1,2 +1,14 @@
 # workflote
-A workflow note tool, used to record selective operations within project directory
+
+
+
+## Usage
+
++ see `wf -h`
+
+***
+
+## source code
+
++ wf : main bash script
++ filter : python3 script used to filter commands in workflow.md
