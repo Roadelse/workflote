@@ -3,3 +3,6 @@
 wf.*.md
 ade*
 mtest/
+.wfhist
+workflow.md
+.workflow.md

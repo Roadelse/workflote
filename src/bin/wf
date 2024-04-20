@@ -141,6 +141,10 @@ if [[ -z $wf_file ]]; then
     fi
 fi
 
+#@ .get-histfile
+wf_histfile=$(dirname $wf_file)/.wfhist
+wf_srcdir=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
+
 #@ .exit-for-execution
 if [[ $way == exec ]]; then
     echo $wf_file
@@ -156,7 +160,8 @@ fi
 #@ .source-unload
 if [[ "$1" == "unload" ]]; then
     echo -e "\033[33m Leaving workflow environment \033[0m"
-    unset -f wf_show wf_cancel wf_exec wf_rec wf_filter _wf_autorec wf_auto
+    trap '' DEBUG
+    unset -f wf_show wf_cancel wf_exec wf_rec wf_filter _wf_autorec wf_auto _saveHist
     unset wf_srcdir wf_automode tarDir way tarDir init new_opt show_help wf_file rexit WF_LOADED
     unset PROMPT_COMMAND
     return
@@ -166,6 +171,13 @@ fi
 export WF_LOADED=1
 
 echo -e "\033[33m Entering workflow environment \033[0m"
+
+function _saveHist() {
+    if [[ "$BASH_COMMAND" =~ _wf_ ]]; then
+        return
+    fi
+    echo "$BASH_COMMAND" >>$wf_histfile
+}
 
 #@ Core
 #@ .wf_show
@@ -240,11 +252,13 @@ function wf_rec() {
     ((nlines_plus = nlines + 1))
 
     if [[ -z "$1" ]]; then
-        targetCommand=$(history 2 | head -n 1 | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+        # targetCommand=$(tail -n 2 $wf_histfile | head -n 1 | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+        targetCommand=$(tail -n 2 $wf_histfile | head -n 1)
     else
         targetCommand=
         if [[ -n $1 ]]; then
-            history $nlines_plus | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}' >.temp.wf
+            # tail -n $nlines_plus $wf_histfile | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}' >.temp.wf
+            tail -n $nlines_plus $wf_histfile | head -n $nlines | tac >.temp.wf
             while read -r line; do
                 echo "$line vs $1"
                 if [[ "$line" =~ ^"$1" ]]; then
@@ -272,7 +286,6 @@ function wf_rec() {
 }
 
 #@ .wf_filter
-wf_srcdir=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 function wf_filter() {
     ig_file=$tarDir/.wfignore
     if [[ $filter_mode == 1 && -e $ig_file ]]; then
@@ -287,7 +300,9 @@ function _wf_autorec() {
     if [[ $? -ne 0 ]]; then
         return
     fi
+    # local last_command=$(tail -n 1 $wf_histfile | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
     local last_command=$(history 1 | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+    # local last_command=$(tail -n 1 $wf_histfile)
 
     #@ Main
     #@ .exclude-condition outside target tarDir
@@ -349,3 +364,5 @@ function wf_auto() {
         export PROMPT_COMMAND=
     fi
 }
+
+trap _saveHist DEBUG
