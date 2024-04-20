@@ -244,13 +244,16 @@ function wf_rec() {
     else
         targetCommand=
         if [[ -n $1 ]]; then
-            while read line; do
+            history $nlines_plus | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}' >.temp.wf
+            while read -r line; do
                 echo "$line vs $1"
                 if [[ "$line" =~ ^"$1" ]]; then
                     targetCommand=$line
                     break
                 fi
-            done <<<$(history $nlines_plus | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+            done <.temp.wf
+            # done <<<$(history $nlines_plus | head -n $nlines | tac | awk '{$1=""; sub(/^[ \t]+/, ""); print}')
+            rm -f .temp.wf
         fi
         if [[ -z "$targetCommand" ]]; then
             echo -e "\033[31m Cannot find target command in last $nlines commands"
