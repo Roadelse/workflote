@@ -1,6 +1,7 @@
 # Features
 
 
++ (?) 以source形式的utest, bats对于history的处理在某些老bash里还是有问题
 + (?) 考虑一种捕捉output的方式? 利用trap DEBUG? 或者去拥抱asciinema/termRecord这些? 抑或是完全不在这里考虑这种功能
 + (?) 转dockerfile
 + (?) 尝试捕捉更多的信息? 例如每一个操作的改变?
@@ -10,6 +11,8 @@
 
 ## v24.4
 
++ (√)  2024-04-20  add <branch:trap-debug>, which is an alternative way to record history commands
++ (√)  2024-04-20  Replace Here-String as temporary file in <func:wf_rec>
 + (√)  2024-04-18  Update deployment using new rdee-* series processing logic
 
 ## v24.3
