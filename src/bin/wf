@@ -9,6 +9,31 @@
 # 2024-03-25    UPDATE  | Optimize auto-mode, re-arrange the skeleton comments
 
 #@ Prepare
+#@ .functions
+function get_wf_file() {
+    local wf_file tarDir
+
+    if [[ -n "$1" ]]; then
+        tarDir="$1"
+    else
+        tarDir=$PWD
+    fi
+
+    wf_file=
+    while [[ $tarDir != "/" ]]; do
+        if [[ -e $tarDir/workflow.md && $(test -w $tarDir/workflow.md && echo ok || echo fail) == ok ]]; then
+            wf_file=$tarDir/workflow.md
+            break
+        elif [[ -e $tarDir/.workflow.md && $(test -w $tarDir/.workflow.md && echo ok || echo fail) == ok ]]; then
+            wf_file=$tarDir/.workflow.md
+            break
+        else
+            tarDir=$(dirname $tarDir)
+            continue
+        fi
+    done
+    echo $wf_file
+}
 
 #@ .global-variables
 tarDir=$PWD
@@ -115,19 +140,8 @@ if [[ $init == 1 ]]; then
 fi
 
 #@ .get-wf-file
-wf_file=
-while [[ $tarDir != "/" ]]; do
-    if [[ -e $tarDir/workflow.md && $(test -w $tarDir/workflow.md && echo ok || echo fail) == ok ]]; then
-        wf_file=$tarDir/workflow.md
-        break
-    elif [[ -e $tarDir/.workflow.md && $(test -w $tarDir/.workflow.md && echo ok || echo fail) == ok ]]; then
-        wf_file=$tarDir/.workflow.md
-        break
-    else
-        tarDir=$(dirname $tarDir)
-        continue
-    fi
-done
+
+wf_file=$(get_wf_file)
 
 #@ .check-wf-file
 if [[ -z $wf_file ]]; then
@@ -170,6 +184,7 @@ echo -e "\033[33m Entering workflow environment \033[0m"
 #@ Core
 #@ .wf_show
 function wf_show() {
+    wf_file=$(get_wf_file)
     if [[ -z "$1" ]]; then
         show_command=glow
     else
@@ -185,6 +200,8 @@ function wf_show() {
 
 #@ .wf_cancel
 function wf_cancel() {
+    wf_file=$(get_wf_file)
+
     sed -i '$d' $wf_file                             #@ exp remove the last line
     if [[ ! $(sed -n '$p' $wf_file) =~ \+.* ]]; then #@ branch if the last line becomes location info, remove the last 2 lines
         head -n -2 $wf_file >.ade
@@ -200,6 +217,8 @@ function wf_exec() {
 
 #@ .wf_pexec
 function wf_pexec() {
+    wf_file=$(get_wf_file)
+
     relpath=$(realpath --relative-to=$tarDir $PWD)
     last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
 
@@ -213,6 +232,8 @@ function wf_pexec() {
 
 #@ .wf_say
 function wf_say() {
+    wf_file=$(get_wf_file)
+
     relpath=$(realpath --relative-to=$tarDir $PWD)
     last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
 
@@ -226,6 +247,8 @@ function wf_say() {
 
 #@ .wf_rec
 function wf_rec() {
+    wf_file=$(get_wf_file)
+
     relpath=$(realpath --relative-to=$tarDir $PWD)
     last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
 
@@ -320,32 +343,34 @@ function _wf_autorec() {
 
     #@ .resolve-path
     local relpath=$(realpath --relative-to=$tarDir .)
-    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file | tail -n 1)
+    last_relpath=$(grep -Po '^At \*\*\K(.*)(?=\*\*)' $wf_file_fix | tail -n 1)
 
     #@ .action
     if [[ $last_relpath == $relpath ]]; then
-        echo -e "+ ${last_command}" >>$wf_file
+        echo -e "+ ${last_command}" >>$wf_file_fix
     else
         local nowDT=$(date '+%Y-%m-%d %H:%M:%S')
-        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ ${last_command}" >>$wf_file
+        echo -e "***\nAt **${relpath}** *@${nowDT}*\n+ ${last_command}" >>$wf_file_fix
     fi
 
     # Post
-    echo -e "\033[33m command recorded in $wf_file \033[0m"
+    echo -e "\033[33m command recorded in $wf_file_fix \033[0m"
 }
 
 #@ .wf_auto
 function wf_auto() {
     if [[ "$1" != "off" ]]; then
+        wf_file_fix=$wf_file
         export PROMPT_COMMAND=_wf_autorec
         export wf_auto_mode=include
         if [[ "$2" == "exclude" ]]; then
             export wf_auto_mode=exclude
         fi
         echo -e "\033[33m turn on workflow auto-mode:$wf_auto_mode \033[0m"
+	echo "note: now the wf_file is fixed to $wf_file, external commands are not recorded still"
 
     else
-        echo -e '\033[32m turn off workflow auto-mode \033[0m'
+        echo -e '\033[31m turn off workflow auto-mode \033[0m'
         export PROMPT_COMMAND=
     fi
 }
